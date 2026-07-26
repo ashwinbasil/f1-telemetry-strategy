@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./notebooks:/app/notebooks
+    ports:
+      - "8888:8888"
+    environment:
+      - FASTF1_CACHE=/app/data/raw/fastf1_cache
+    command: jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root

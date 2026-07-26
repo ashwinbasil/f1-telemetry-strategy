@@ -1,0 +1,6 @@
+data/raw/fastf1_cache/
+data/processed/*.duckdb
+__pycache__/
+*.pyc
+.env
+.ipynb_checkpoints/
