@@ -22,14 +22,14 @@ def driver_comparison(driver_a="VER", driver_b="LEC"):
         avg_s1=("Sector1Time_sec", "mean"),
         avg_s2=("Sector2Time_sec", "mean"),
         avg_s3=("Sector3Time_sec", "mean"),
-    ).round(3)
+    ).round(3).reset_index()
 
     return summary, df
 
 if __name__ == "__main__":
     summary, df = driver_comparison()
     print("Driver comparison summary:")
-    print(summary.to_string())
+    print(summary.to_string(index=False))
     print(f"\nLower std_lap = more consistent pace across stint")
 
     con = duckdb.connect(DB_PATH)
