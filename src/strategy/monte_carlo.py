@@ -3,14 +3,14 @@ import numpy as np
 import pandas as pd
 
 DB_PATH = "/app/data/processed/telemetry.duckdb"
-PIT_LOSS_SEC = 22.0  # avg pit stop time loss, Bahrain track (typical 20-24s)
+PIT_LOSS_SEC = 22.0
 TOTAL_LAPS = 56
-LAP_TIME_NOISE_STD = 0.3  # random variation per lap, seconds
+LAP_TIME_NOISE_STD = 0.3
 
 def get_deg_params(compound):
     con = duckdb.connect(DB_PATH)
     df = con.execute(f"""
-        SELECT AVG(deg_rate_sec_per_lap) as avg_deg, AVG(base_laptime) as avg_base
+        SELECT AVG(deg_rate_sec_per_lap) as avg_deg, AVG(base_laptime_normalized) as avg_base
         FROM tire_degradation
         WHERE Compound = '{compound}'
     """).df()
@@ -36,7 +36,7 @@ def simulate_one_stop(pit_lap, compound_1, compound_2, n_trials=1000):
 
 if __name__ == "__main__":
     pit_lap_options = [15, 20, 25, 30, 35]
-    compound_pairs = [("SOFT", "HARD"), ("HARD", "SOFT"), ("HARD", "HARD")]
+    compound_pairs = [("SOFT", "HARD"), ("HARD", "SOFT"), ("HARD", "HARD"), ("SOFT", "SOFT")]
 
     summary = []
     for pit_lap in pit_lap_options:
@@ -54,7 +54,7 @@ if __name__ == "__main__":
 
     summary_df = pd.DataFrame(summary)
     summary_df = summary_df.sort_values("mean_total_time")
-    print("Monte Carlo pit strategy results (1000 trials each):")
+    print("Monte Carlo pit strategy results (1000 trials each, normalized base laptime):")
     print(summary_df.to_string(index=False))
 
     con = duckdb.connect(DB_PATH)
