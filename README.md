@@ -1,5 +1,7 @@
 # F1 Telemetry & Strategy Analytics
 
+🔗 [Live Dashboard](https://ashwinbasil.github.io/f1-telemetry-strategy/)
+
 **Status: MVP Complete** — end-to-end pipeline built, prototype scope (2 drivers, 1 race). Scaling to full grid + multi-race next.
 
 Portfolio project applying data analysis skills to motorsport telemetry, vehicle dynamics, and race strategy. Built to break into motorsport data analyst / performance engineer roles, starting from zero prior motorsport domain experience.
