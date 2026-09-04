@@ -4,8 +4,11 @@ from src.features.corner_detection import detect_corners
 
 DB_PATH = "/app/data/processed/telemetry.duckdb"
 
-def detect_throttle_points(lookahead_distance=200, throttle_threshold=20):
-    corners_df, telemetry_df = detect_corners()
+def detect_throttle_points(driver="VER", table="telemetry_all", lookahead_distance=200, throttle_threshold=20):
+    corners_df, telemetry_df = detect_corners(driver=driver, table=table)
+
+    if len(corners_df) == 0:
+        return pd.DataFrame()
 
     throttle_points = []
     for _, corner in corners_df.iterrows():
@@ -30,6 +33,7 @@ def detect_throttle_points(lookahead_distance=200, throttle_threshold=20):
         ]
 
         throttle_points.append({
+            "Driver": driver,
             "corner_number": corner["corner_number"],
             "apex_distance": apex_dist,
             "apex_speed": corner["apex_speed"],
@@ -39,15 +43,29 @@ def detect_throttle_points(lookahead_distance=200, throttle_threshold=20):
             "coasting_length": (throttle_point_dist - apex_dist) if throttle_point_dist is not None else None
         })
 
-    throttle_df = pd.DataFrame(throttle_points)
-    return throttle_df
+    return pd.DataFrame(throttle_points)
+
+def detect_throttle_points_all_drivers(drivers=None, table="telemetry_all"):
+    con = duckdb.connect(DB_PATH)
+    if drivers is None:
+        drivers = con.execute(f"SELECT DISTINCT Driver FROM {table}").df()["Driver"].tolist()
+    con.close()
+
+    all_throttle_points = []
+    for driver in drivers:
+        tp_df = detect_throttle_points(driver=driver, table=table)
+        if len(tp_df) > 0:
+            all_throttle_points.append(tp_df)
+        print(f"{driver}: {len(tp_df)} throttle points")
+
+    combined = pd.concat(all_throttle_points, ignore_index=True)
+    return combined
 
 if __name__ == "__main__":
-    throttle_df = detect_throttle_points()
-    print(f"Throttle points for {len(throttle_df)} corners")
-    print(throttle_df.to_string())
+    all_throttle_points = detect_throttle_points_all_drivers()
+    print(f"\nTotal: {len(all_throttle_points)} throttle points across {all_throttle_points['Driver'].nunique()} drivers")
 
     con = duckdb.connect(DB_PATH)
-    con.execute("CREATE OR REPLACE TABLE throttle_points AS SELECT * FROM throttle_df")
+    con.execute("CREATE OR REPLACE TABLE throttle_points_all AS SELECT * FROM all_throttle_points")
     con.close()
-    print("Saved throttle_points table to DuckDB")
+    print("Saved throttle_points_all table to DuckDB")
