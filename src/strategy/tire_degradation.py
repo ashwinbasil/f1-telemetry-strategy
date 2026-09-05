@@ -7,7 +7,7 @@ DB_PATH = "/app/data/processed/telemetry.duckdb"
 def load_stint_data(table="sector_splits_multi_race", driver=None, race=None):
     con = duckdb.connect(DB_PATH)
     query = f"""
-        SELECT Driver, Race, Year, Stint, LapNumber, LapTime_sec, Compound, TyreLife
+        SELECT Driver, Race, Year, Stint, LapNumber, LapTime_sec, Compound, TyreLife, TrackStatus
         FROM {table}
         WHERE LapTime_sec IS NOT NULL
           AND Compound IS NOT NULL
@@ -23,6 +23,11 @@ def load_stint_data(table="sector_splits_multi_race", driver=None, race=None):
     con.close()
     return df
 
+def filter_green_flag(df):
+    # TrackStatus is a string of status codes per lap (can be multi-char e.g. "24")
+    # keep only laps where status is exactly "1" (green flag only, no yellow/SC/VSC/red mixed in)
+    return df[df["TrackStatus"].astype(str) == "1"].copy()
+
 def compute_global_trend(df):
     median = df["LapTime_sec"].median()
     clean = df[df["LapTime_sec"] < median + 3]
@@ -31,7 +36,15 @@ def compute_global_trend(df):
 
 def fit_degradation(df, min_laps=5):
     results = []
-    for race, race_group in df.groupby("Race"):
+    dropped_races = []
+
+    for race, race_group_raw in df.groupby("Race"):
+        race_group = filter_green_flag(race_group_raw)
+
+        if len(race_group) < min_laps * 2:
+            dropped_races.append((race, len(race_group_raw), len(race_group)))
+            continue
+
         global_trend_slope = compute_global_trend(race_group)
 
         for (driver, stint), group in race_group.groupby(["Driver", "Stint"]):
@@ -65,14 +78,20 @@ def fit_degradation(df, min_laps=5):
                 "base_laptime_normalized": round(normalized_base, 3)
             })
 
+    if dropped_races:
+        print("Races skipped (too few green-flag laps after filtering):")
+        for race, raw_n, green_n in dropped_races:
+            print(f"  {race}: {raw_n} raw laps -> {green_n} green-flag laps")
+
     return pd.DataFrame(results)
 
 if __name__ == "__main__":
     df = load_stint_data()
+    print(f"TrackStatus values present: {sorted(df['TrackStatus'].astype(str).unique())}")
     deg_results = fit_degradation(df)
     deg_results = deg_results.sort_values(["Race", "Compound", "deg_rate_sec_per_lap"])
 
-    print(f"Tire degradation, multi-race, {deg_results['Race'].nunique()} races:")
+    print(f"\nTire degradation, multi-race (green-flag laps only), {deg_results['Race'].nunique()} races:")
     print(deg_results.groupby(["Race", "Compound"])[["deg_rate_sec_per_lap", "base_laptime_normalized"]].mean().round(4).to_string())
 
     con = duckdb.connect(DB_PATH)

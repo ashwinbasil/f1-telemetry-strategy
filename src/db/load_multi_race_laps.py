@@ -23,7 +23,8 @@ def load_and_parse():
 
     con = duckdb.connect(DB_PATH)
     df = con.execute("""
-        SELECT Driver, Race, Year, LapNumber, LapTime, Sector1Time, Sector2Time, Sector3Time, Compound, TyreLife, Stint
+        SELECT Driver, Race, Year, LapNumber, LapTime, Sector1Time, Sector2Time, Sector3Time,
+               Compound, TyreLife, Stint, TrackStatus
         FROM laps_multi_race
         WHERE Sector1Time IS NOT NULL
           AND Sector2Time IS NOT NULL
@@ -37,9 +38,8 @@ def load_and_parse():
     con = duckdb.connect(DB_PATH)
     con.execute("CREATE OR REPLACE TABLE sector_splits_multi_race AS SELECT * FROM df")
     result = con.execute("SELECT COUNT(*) FROM sector_splits_multi_race").fetchone()
-    races = con.execute("SELECT COUNT(DISTINCT Race) FROM sector_splits_multi_race").fetchone()
     con.close()
-    print(f"Loaded {result[0]} laps across {races[0]} races into sector_splits_multi_race")
+    print(f"Loaded {result[0]} laps, TrackStatus column included")
 
 if __name__ == "__main__":
     load_and_parse()
