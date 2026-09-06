@@ -10,6 +10,11 @@ RACES = [
     (2024, "Bahrain"),
     (2024, "Saudi Arabia"),
     (2024, "Australia"),
+    (2024, "Monaco"),
+    (2024, "Singapore"),
+    (2024, "Belgium"),
+    (2024, "Japan"),
+    (2024, "Monza"),
 ]
 
 def fetch_all_laps(races=RACES, session_type="R"):
