@@ -1,10 +1,10 @@
 # F1 Telemetry & Strategy Analytics
 
-🔗 [Live Dashboard](https://ashwinbasil.github.io/f1-telemetry-strategy/)
-
-**Status: MVP Complete** — end-to-end pipeline built, prototype scope (2 drivers, 1 race). Scaling to full grid + multi-race next.
+**Status: Core pipeline complete, scaled to full grid + 8 races.** One data-refresh step pending (see Roadmap).
 
 Portfolio project applying data analysis skills to motorsport telemetry, vehicle dynamics, and race strategy. Built to break into motorsport data analyst / performance engineer roles, starting from zero prior motorsport domain experience.
+
+🔗 [Live Dashboard](https://<your-username>.github.io/f1-telemetry-strategy/)
 
 ## Stack
 
@@ -16,7 +16,7 @@ Python, FastF1, DuckDB, Docker, Pandas, NumPy, SciPy, Plotly
 FastF1 (data source)
     │
     ▼
-Data Ingestion
+Data Ingestion  — 20 drivers × 8 races (2024 season)
     │
     ▼
 DuckDB (storage)
@@ -27,65 +27,59 @@ Feature Engineering  ✅
 • Brake points (braking zone start per corner)
 • Throttle points (corner exit, throttle reapplication)
 • Sector splits (all drivers, full race)
-• Delta time (point-by-point gap between two drivers)
+• Delta time (each driver vs session-fastest reference)
     │
     ▼
 Telemetry Analytics  ✅
 • Lap comparison (speed trace + delta overlay)
-• Corner ranking (time impact per corner)
-• Driver comparison (race pace + consistency)
+• Corner ranking (avg time lost per corner, full grid)
+• Driver comparison (race pace + consistency, full grid ranked)
 • Time loss report (aggregate summary)
     │
     ▼
-Strategy Engine  ✅
-• Tire degradation model (lap time vs tyre age, per compound)
+Strategy Engine  ✅ (Bahrain-specific; multi-race deg model built, other strategy pieces not yet re-run at 8-race scale)
+• Tire degradation model (lap time vs tyre age, per compound, per race)
 • Monte Carlo simulation (1000 trials per pit-lap/compound combo)
 • Pit stop optimizer (best strategy recommendation)
     │
     ▼
 Dashboard  ✅
 • Single self-contained HTML file (Plotly, CDN-based, no server needed)
+• Hosted live via GitHub Pages
 ```
 
-## Results (Bahrain GP 2024, VER vs LEC)
+## Scope
 
-- Fastest lap gap: 1.315s (LEC slower)
-- Top corner by time impact: Corner 1 (+0.415s, LEC faster)
+- **Drivers:** full 20-driver grid
+- **Races:** 8 races, 2024 season — Bahrain, Saudi Arabia, Australia, Monaco, Singapore, Belgium, Japan, Monza (Italian GP)
+- **Season:** 2024 only, single year
+
+## Results (Bahrain GP 2024, full grid)
+
+- Fastest: VER (92.608s) — Slowest: OCO (96.226s) — field spread 3.618s
+- Top corner by avg time lost across field: Corner 1 (0.364s vs fastest driver)
 - Optimal pit strategy: HARD → HARD, pit lap 30, predicted race time 5546.75s
-- Tire degradation validated against real physics: SOFT degrades ~2.2x faster than HARD (0.1231 vs 0.0563 sec/lap), matches known tire behavior
+- Tire degradation validated against real physics on Bahrain: SOFT degrades ~2.2x faster than HARD (0.128 vs 0.056 sec/lap)
 
 ## Key engineering decisions & debugging
 
-**Tire degradation fuel/track-evolution confound.** Initial model showed HARD compound as faster base pace than SOFT, contradicting real tire physics. Root cause: `base_laptime` (regression intercept) conflated compound pace with fuel load, since SOFT stints in this race were mostly early (heavy fuel) and HARD stints mostly late (light fuel). Fixed by computing a global fuel-burn/track-evolution trend via regression on lap number, then normalizing each stint's base laptime to a common reference point before averaging by compound. Post-fix, SOFT correctly showed faster base pace (97.61s vs 97.84s).
+**Tire degradation fuel/track-evolution confound.** Initial model showed HARD compound as faster base pace than SOFT, contradicting real tire physics. Root cause: the regression intercept conflated compound pace with fuel load, since SOFT stints were mostly early (heavy fuel) and HARD stints mostly late (light fuel). Fixed by computing a global fuel-burn/track-evolution trend per race via regression on lap number, then normalizing each stint's base laptime to a common reference point before averaging by compound.
 
-**Throttle point detection returning zero coasting distance.** Early version of corner-exit throttle detection returned 0m coasting length for every corner. Bug was in the search window including the apex point itself, where throttle had already ticked above threshold. Fixed by excluding the apex point and starting the search strictly after it.
+**Multi-race scaling surfaced a real model limitation.** Extending the degradation model to Australia and Saudi Arabia (both known low-degradation circuits) produced near-zero or negative fitted degradation rates — physically implausible on the surface. Tried filtering to green-flag-only laps via the `TrackStatus` column; this didn't resolve it. Most likely cause: low sample size per stint combined with genuinely low real-world tire degradation at these circuits, so fuel-burn noise dominates whatever degradation signal exists. The model remains reliable on high-degradation circuits (Bahrain) and is documented as unreliable on low-degradation ones, rather than force-fit with more parameters.
 
-**Corner detection false positives.** Raw local-minima detection on speed trace initially found 10 "corners" on an 8-corner-equivalent lap, including a track-boundary artifact at distance ~0 and a shallow noise dip. Fixed with an edge buffer (exclude detections near lap start/end) and a minimum speed-drop threshold, rather than filtering on throttle value (which incorrectly removed a legitimate high-speed corner).
+**Throttle point detection returning zero coasting distance.** Early version of corner-exit throttle detection returned 0m coasting length for every corner, because the search window included the apex point itself, where throttle had already ticked above threshold. Fixed by excluding the apex point and starting the search strictly after it.
 
-## Known limitations (current scope)
+**Corner detection false positives.** Raw local-minima detection on the speed trace initially found extra "corners," including a track-boundary artifact near distance 0. Fixed with an edge buffer and a minimum speed-drop threshold, rather than filtering on throttle value (which incorrectly removed a legitimate high-speed corner).
 
-- **2 drivers only (VER, LEC)** — deliberate prototype scope, to validate pipeline logic before scaling. Not a data availability limit; FastF1 has telemetry for the full grid.
-- **1 race (Bahrain 2024)** — tire degradation model fit on one track's characteristics; deg rates won't generalize to other circuits without more data.
+**Data source name collisions.** Requesting "Italy" as a race name from FastF1 pulled the wrong 2024 event (Emilia Romagna GP at Imola instead of the Italian GP at Monza) — 2024 had two Italian rounds. Fixed by using the specific circuit-based name ("Monza") FastF1 expects.
+
+## Known limitations
+
+- **Tire degradation model unreliable on low-degradation circuits** (Australia, Saudi Arabia) — see above. Reliable on Bahrain.
+- **Corner numbering is slightly uneven across drivers** — the corner-detection heuristic finds 8 corners for most drivers and 9 for some, depending on noise in the speed trace at borderline detections.
+- **Strategy Engine (Monte Carlo, pit optimizer) is still Bahrain-specific** — not yet re-run across all 8 races.
 - **Linear degradation model, no tire cliff** — real tires can show a sudden performance drop past a certain age; this model assumes constant linear wear.
 - **Pit loss time is a fixed constant** — real pit loss varies by team, track, and pit lane length.
-
-## DuckDB Tables
-
-| Table | Rows | Description |
-|---|---|---|
-| `laps` | 1129 | Lap-level data, all 20 drivers |
-| `telemetry` | 704 | VER fastest lap, point-by-point |
-| `telemetry_lec` | 702 | LEC fastest lap, point-by-point |
-| `corners` | 8 | Detected corner apexes |
-| `brake_points` | 8 | Braking zone start per corner |
-| `throttle_points` | 8 | Throttle reapplication per corner |
-| `sector_splits` | 1108 | Parsed sector times, all drivers |
-| `delta_ver_lec` | 1000 | Interpolated time delta, VER vs LEC |
-| `corner_ranking` | 8 | Corners ranked by time impact |
-| `driver_comparison` | 2 | Race pace summary, VER vs LEC |
-| `tire_degradation` | 65 | Deg rate + normalized base laptime, per stint |
-| `monte_carlo_results` | 20 | Simulated race time per pit-lap/compound combo |
-| `pit_optimizer_recommendations` | 4 | Best pit lap per compound strategy |
 
 ## Setup
 
@@ -113,11 +107,11 @@ f1-telemetry-strategy/
 │   ├── raw/
 │   └── processed/
 ├── src/
-│   ├── ingestion/       # FastF1 data pulls
+│   ├── ingestion/       # FastF1 data pulls (single-race and multi-race/multi-driver)
 │   ├── db/              # DuckDB load scripts
-│   ├── features/        # corner/brake/throttle/sector/delta detection
+│   ├── features/        # corner/brake/throttle/sector/delta detection, scaled to full grid
 │   ├── analytics/       # lap/driver comparison, corner ranking, time loss
-│   ├── strategy/        # tire degradation, Monte Carlo, pit optimizer
+│   ├── strategy/        # tire degradation (multi-race), Monte Carlo, pit optimizer
 │   └── dashboard/       # HTML dashboard builder
 ├── notebooks/
 └── tests/
@@ -125,12 +119,14 @@ f1-telemetry-strategy/
 
 ## Roadmap
 
-- [ ] Scale to full 20-driver grid (refactor per-driver tables to single table + `Driver` column)
-- [ ] Scale to multiple races/years (add `Race`, `Year` columns)
-- [ ] Switch delta comparison from pairwise to each-driver-vs-session-fastest reference
+- [x] Scale to full 20-driver grid
+- [x] Scale ingestion + tire degradation model to 8 races (2024)
+- [ ] Regenerate `sector_splits_multi_race` and `tire_degradation_multi_race` from the current 8-race `laps_multi_race` table (currently still reflect the earlier 3-race pull)
+- [ ] Re-run Monte Carlo and pit optimizer across all 8 races, not just Bahrain
+- [ ] Add a race filter/selector to the dashboard
 - [ ] Add tire-cliff modeling (non-linear degradation past a threshold age)
-- [ ] Deploy dashboard via GitHub Pages
+- [ ] Expand beyond the 2024 season (multi-year)
 
 ## Why this project
 
-Background in data analysis, no prior motorsport domain experience. Built this to learn vehicle dynamics, telemetry analysis, and race strategy terminology hands-on, using real F1 data, not toy datasets. Every layer was built and validated against known motorsport physics (tire compound behavior, corner exit dynamics) rather than assumed correct just because the code ran.s
+Background in data analysis, no prior motorsport domain experience. Built this to learn vehicle dynamics, telemetry analysis, and race strategy terminology hands-on, using real F1 data, not toy datasets. Every layer was built and validated against known motorsport physics rather than assumed correct just because the code ran — including the honest documentation of where the model breaks down (low-degradation circuits) rather than hiding it.
