@@ -4,8 +4,8 @@ from src.features.corner_detection import detect_corners
 
 DB_PATH = "/app/data/processed/telemetry.duckdb"
 
-def detect_throttle_points(driver="VER", table="telemetry_all", lookahead_distance=200, throttle_threshold=20):
-    corners_df, telemetry_df = detect_corners(driver=driver, table=table)
+def detect_throttle_points(driver="VER", race="Bahrain", table="telemetry_multi_race", lookahead_distance=200, throttle_threshold=20):
+    corners_df, telemetry_df = detect_corners(driver=driver, race=race, table=table)
 
     if len(corners_df) == 0:
         return pd.DataFrame()
@@ -34,6 +34,7 @@ def detect_throttle_points(driver="VER", table="telemetry_all", lookahead_distan
 
         throttle_points.append({
             "Driver": driver,
+            "Race": race,
             "corner_number": corner["corner_number"],
             "apex_distance": apex_dist,
             "apex_speed": corner["apex_speed"],
@@ -45,27 +46,32 @@ def detect_throttle_points(driver="VER", table="telemetry_all", lookahead_distan
 
     return pd.DataFrame(throttle_points)
 
-def detect_throttle_points_all_drivers(drivers=None, table="telemetry_all"):
+def detect_throttle_points_all(drivers=None, races=None, table="telemetry_multi_race"):
     con = duckdb.connect(DB_PATH)
     if drivers is None:
         drivers = con.execute(f"SELECT DISTINCT Driver FROM {table}").df()["Driver"].tolist()
+    if races is None:
+        races = con.execute(f"SELECT DISTINCT Race FROM {table}").df()["Race"].tolist()
     con.close()
 
     all_throttle_points = []
-    for driver in drivers:
-        tp_df = detect_throttle_points(driver=driver, table=table)
-        if len(tp_df) > 0:
-            all_throttle_points.append(tp_df)
-        print(f"{driver}: {len(tp_df)} throttle points")
+    for race in races:
+        race_count = 0
+        for driver in drivers:
+            tp_df = detect_throttle_points(driver=driver, race=race, table=table)
+            if len(tp_df) > 0:
+                all_throttle_points.append(tp_df)
+                race_count += 1
+        print(f"{race}: {race_count} drivers processed")
 
     combined = pd.concat(all_throttle_points, ignore_index=True)
     return combined
 
 if __name__ == "__main__":
-    all_throttle_points = detect_throttle_points_all_drivers()
-    print(f"\nTotal: {len(all_throttle_points)} throttle points across {all_throttle_points['Driver'].nunique()} drivers")
+    all_throttle_points = detect_throttle_points_all()
+    print(f"\nTotal: {len(all_throttle_points)} throttle points across {all_throttle_points['Race'].nunique()} races, {all_throttle_points['Driver'].nunique()} drivers")
 
     con = duckdb.connect(DB_PATH)
-    con.execute("CREATE OR REPLACE TABLE throttle_points_all AS SELECT * FROM all_throttle_points")
+    con.execute("CREATE OR REPLACE TABLE throttle_points_multi_race AS SELECT * FROM all_throttle_points")
     con.close()
-    print("Saved throttle_points_all table to DuckDB")
+    print("Saved throttle_points_multi_race table to DuckDB")
