@@ -2,7 +2,6 @@ import duckdb
 import pandas as pd
 
 DB_PATH = "/app/data/processed/telemetry.duckdb"
-CSV_PATH = "/app/data/processed/multi_race_laps.csv"
 
 def timedelta_str_to_seconds(td_str):
     if pd.isna(td_str):
@@ -13,14 +12,7 @@ def timedelta_str_to_seconds(td_str):
     except:
         return None
 
-def load_and_parse():
-    con = duckdb.connect(DB_PATH)
-    con.execute(f"""
-        CREATE OR REPLACE TABLE laps_multi_race AS
-        SELECT * FROM read_csv_auto('{CSV_PATH}')
-    """)
-    con.close()
-
+def parse_sector_splits():
     con = duckdb.connect(DB_PATH)
     df = con.execute("""
         SELECT Driver, Race, Year, LapNumber, LapTime, Sector1Time, Sector2Time, Sector3Time,
@@ -38,8 +30,9 @@ def load_and_parse():
     con = duckdb.connect(DB_PATH)
     con.execute("CREATE OR REPLACE TABLE sector_splits_multi_race AS SELECT * FROM df")
     result = con.execute("SELECT COUNT(*) FROM sector_splits_multi_race").fetchone()
+    races = con.execute("SELECT COUNT(DISTINCT Race) FROM sector_splits_multi_race").fetchone()
     con.close()
-    print(f"Loaded {result[0]} laps, TrackStatus column included")
+    print(f"sector_splits_multi_race: {result[0]} laps, {races[0]} races")
 
 if __name__ == "__main__":
-    load_and_parse()
+    parse_sector_splits()
