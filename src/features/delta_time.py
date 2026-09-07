@@ -7,30 +7,20 @@ DB_PATH = "/app/data/processed/telemetry.duckdb"
 def time_to_seconds(t):
     return pd.to_timedelta(t).total_seconds()
 
-def find_session_fastest(table="telemetry_all"):
+def find_race_fastest(race):
     con = duckdb.connect(DB_PATH)
-    df = con.execute(f"""
-        SELECT Driver, MAX(LapNumber) as LapNumber, MAX(Distance) as MaxDist
-        FROM {table}
-        GROUP BY Driver
-    """).df()
-    con.close()
-    # fastest lap = lap with lowest max Time value at end of lap, approximate via laps table instead
-    con = duckdb.connect(DB_PATH)
-    laps = con.execute("""
-        SELECT Driver, LapTime_sec
-        FROM sector_splits
-        WHERE LapTime_sec IS NOT NULL
-        ORDER BY LapTime_sec ASC
-        LIMIT 1
+    laps = con.execute(f"""
+        SELECT Driver, LapTime_sec FROM sector_splits_multi_race
+        WHERE Race = '{race}' AND LapTime_sec IS NOT NULL
+        ORDER BY LapTime_sec ASC LIMIT 1
     """).df()
     con.close()
     return laps["Driver"].iloc[0], laps["LapTime_sec"].iloc[0]
 
-def compute_delta_vs_reference(driver, reference_driver, table="telemetry_all"):
+def compute_delta_vs_reference(driver, race, reference_driver, table="telemetry_multi_race"):
     con = duckdb.connect(DB_PATH)
-    df_driver = con.execute(f"SELECT Distance, Time, Speed FROM {table} WHERE Driver = '{driver}' ORDER BY Distance").df()
-    df_ref = con.execute(f"SELECT Distance, Time, Speed FROM {table} WHERE Driver = '{reference_driver}' ORDER BY Distance").df()
+    df_driver = con.execute(f"SELECT Distance, Time, Speed FROM {table} WHERE Driver = '{driver}' AND Race = '{race}' ORDER BY Distance").df()
+    df_ref = con.execute(f"SELECT Distance, Time, Speed FROM {table} WHERE Driver = '{reference_driver}' AND Race = '{race}' ORDER BY Distance").df()
     con.close()
 
     df_driver = df_driver.dropna(subset=["Distance"]).drop_duplicates(subset=["Distance"])
@@ -47,45 +37,42 @@ def compute_delta_vs_reference(driver, reference_driver, table="telemetry_all"):
 
     time_driver = np.interp(common_distance, df_driver["Distance"], df_driver["Time_sec"])
     time_ref = np.interp(common_distance, df_ref["Distance"], df_ref["Time_sec"])
+    delta = time_driver - time_ref
 
-    delta = time_driver - time_ref  # positive = driver slower than reference
+    return pd.DataFrame({"Driver": driver, "Race": race, "Reference": reference_driver, "Distance": common_distance, "Delta": delta})
 
-    result = pd.DataFrame({
-        "Driver": driver,
-        "Reference": reference_driver,
-        "Distance": common_distance,
-        "Delta": delta
-    })
-    return result
-
-def compute_all_deltas(table="telemetry_all"):
-    reference_driver, ref_laptime = find_session_fastest(table)
-    print(f"Session fastest: {reference_driver} ({ref_laptime:.3f}s), using as reference\n")
-
+def compute_all_races_all_drivers(table="telemetry_multi_race"):
     con = duckdb.connect(DB_PATH)
-    drivers = con.execute(f"SELECT DISTINCT Driver FROM {table}").df()["Driver"].tolist()
+    races = con.execute(f"SELECT DISTINCT Race FROM {table}").df()["Race"].tolist()
     con.close()
 
     all_deltas = []
-    for driver in drivers:
-        if driver == reference_driver:
-            continue
-        try:
-            delta_df = compute_delta_vs_reference(driver, reference_driver, table)
-            final_delta = delta_df["Delta"].iloc[-1]
-            print(f"{driver}: {final_delta:+.3f}s vs {reference_driver}")
-            all_deltas.append(delta_df)
-        except Exception as e:
-            print(f"Failed {driver}: {e}")
+    for race in races:
+        reference_driver, ref_laptime = find_race_fastest(race)
+        con = duckdb.connect(DB_PATH)
+        drivers = con.execute(f"SELECT DISTINCT Driver FROM {table} WHERE Race = '{race}'").df()["Driver"].tolist()
+        con.close()
+
+        count = 0
+        for driver in drivers:
+            if driver == reference_driver:
+                continue
+            try:
+                delta_df = compute_delta_vs_reference(driver, race, reference_driver, table)
+                all_deltas.append(delta_df)
+                count += 1
+            except Exception as e:
+                print(f"  {race} {driver}: failed ({e})")
+        print(f"{race}: fastest={reference_driver} ({ref_laptime:.3f}s), {count} drivers compared")
 
     combined = pd.concat(all_deltas, ignore_index=True)
-    return combined, reference_driver
+    return combined
 
 if __name__ == "__main__":
-    combined, reference_driver = compute_all_deltas()
-    print(f"\nTotal delta rows: {len(combined)}, reference driver: {reference_driver}")
+    combined = compute_all_races_all_drivers()
+    print(f"\nTotal delta rows: {len(combined)} across {combined['Race'].nunique()} races")
 
     con = duckdb.connect(DB_PATH)
-    con.execute("CREATE OR REPLACE TABLE delta_vs_fastest AS SELECT * FROM combined")
+    con.execute("CREATE OR REPLACE TABLE delta_vs_fastest_multi_race AS SELECT * FROM combined")
     con.close()
-    print("Saved delta_vs_fastest table to DuckDB")
+    print("Saved delta_vs_fastest_multi_race table to DuckDB")
