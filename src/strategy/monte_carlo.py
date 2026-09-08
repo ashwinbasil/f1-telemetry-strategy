@@ -3,8 +3,14 @@ import numpy as np
 import pandas as pd
 
 DB_PATH = "/app/data/processed/telemetry.duckdb"
-PIT_LOSS_SEC = 22.0
 LAP_TIME_NOISE_STD = 0.3
+FALLBACK_PIT_LOSS = 22.0
+
+def get_pit_loss(race):
+    con = duckdb.connect(DB_PATH)
+    result = con.execute(f"SELECT pit_loss_estimate_sec FROM pit_loss_estimates WHERE Race = '{race}'").fetchone()
+    con.close()
+    return result[0] if result else FALLBACK_PIT_LOSS
 
 def get_race_lap_count(race):
     con = duckdb.connect(DB_PATH)
@@ -30,6 +36,8 @@ def simulate_one_stop(race, total_laps, pit_lap, compound_1, compound_2, n_trial
     if deg1 is None or deg2 is None:
         return None
 
+    pit_loss = get_pit_loss(race)
+
     results = []
     for _ in range(n_trials):
         stint1_laps = np.arange(1, pit_lap + 1)
@@ -38,7 +46,7 @@ def simulate_one_stop(race, total_laps, pit_lap, compound_1, compound_2, n_trial
         stint2_laps = np.arange(1, total_laps - pit_lap + 1)
         stint2_times = base2 + deg2 * stint2_laps + np.random.normal(0, LAP_TIME_NOISE_STD, len(stint2_laps))
 
-        total_time = stint1_times.sum() + stint2_times.sum() + PIT_LOSS_SEC
+        total_time = stint1_times.sum() + stint2_times.sum() + pit_loss
         results.append(total_time)
 
     return np.array(results)
@@ -52,6 +60,7 @@ def run_all_races():
     all_results = []
     for race in races:
         total_laps = get_race_lap_count(race)
+        pit_loss = get_pit_loss(race)
         pit_lap_options = [int(total_laps * f) for f in [0.3, 0.4, 0.5, 0.6, 0.7]]
         compounds = compounds_per_race[compounds_per_race["Race"] == race]["Compound"].tolist()
 
@@ -64,6 +73,7 @@ def run_all_races():
                     all_results.append({
                         "Race": race,
                         "total_laps": total_laps,
+                        "pit_loss_used": round(pit_loss, 2),
                         "pit_lap": pit_lap,
                         "compound_1": c1,
                         "compound_2": c2,
@@ -72,7 +82,7 @@ def run_all_races():
                         "p10": round(np.percentile(trials, 10), 2),
                         "p90": round(np.percentile(trials, 90), 2)
                     })
-        print(f"{race}: {total_laps} laps, done")
+        print(f"{race}: {total_laps} laps, pit loss {pit_loss:.2f}s, done")
 
     return pd.DataFrame(all_results)
 
