@@ -12,27 +12,27 @@ def get_pit_loss(race):
     con.close()
     return result[0] if result else FALLBACK_PIT_LOSS
 
-def get_race_lap_count(race):
+def get_race_lap_count(year, race):
     con = duckdb.connect(DB_PATH)
-    result = con.execute(f"SELECT MAX(LapNumber) FROM laps_multi_race WHERE Race = '{race}'").fetchone()
+    result = con.execute(f"SELECT MAX(LapNumber) FROM laps_multi_year WHERE Race = '{race}' AND Year = {year}").fetchone()
     con.close()
     return int(result[0])
 
-def get_deg_params(race, compound):
+def get_deg_params(year, race, compound):
     con = duckdb.connect(DB_PATH)
     df = con.execute(f"""
         SELECT AVG(deg_rate_sec_per_lap) as avg_deg, AVG(base_laptime_normalized) as avg_base
-        FROM tire_degradation_multi_race
-        WHERE Race = '{race}' AND Compound = '{compound}'
+        FROM tire_degradation_multi_year
+        WHERE Race = '{race}' AND Year = {year} AND Compound = '{compound}'
     """).df()
     con.close()
     if df["avg_deg"].isna().iloc[0]:
         return None, None
     return df["avg_deg"].iloc[0], df["avg_base"].iloc[0]
 
-def simulate_one_stop(race, total_laps, pit_lap, compound_1, compound_2, n_trials=1000):
-    deg1, base1 = get_deg_params(race, compound_1)
-    deg2, base2 = get_deg_params(race, compound_2)
+def simulate_one_stop(year, race, total_laps, pit_lap, compound_1, compound_2, n_trials=1000):
+    deg1, base1 = get_deg_params(year, race, compound_1)
+    deg2, base2 = get_deg_params(year, race, compound_2)
     if deg1 is None or deg2 is None:
         return None
 
@@ -51,26 +51,33 @@ def simulate_one_stop(race, total_laps, pit_lap, compound_1, compound_2, n_trial
 
     return np.array(results)
 
-def run_all_races():
+def run_all_years_races():
     con = duckdb.connect(DB_PATH)
-    races = con.execute("SELECT DISTINCT Race FROM tire_degradation_multi_race").df()["Race"].tolist()
-    compounds_per_race = con.execute("SELECT Race, Compound FROM tire_degradation_multi_race GROUP BY Race, Compound").df()
+    year_race_pairs = con.execute("SELECT DISTINCT Year, Race FROM tire_degradation_multi_year").df()
     con.close()
 
     all_results = []
-    for race in races:
-        total_laps = get_race_lap_count(race)
+    for _, row in year_race_pairs.iterrows():
+        year, race = row["Year"], row["Race"]
+        total_laps = get_race_lap_count(year, race)
         pit_loss = get_pit_loss(race)
         pit_lap_options = [int(total_laps * f) for f in [0.3, 0.4, 0.5, 0.6, 0.7]]
-        compounds = compounds_per_race[compounds_per_race["Race"] == race]["Compound"].tolist()
+
+        con = duckdb.connect(DB_PATH)
+        compounds = con.execute(f"""
+            SELECT DISTINCT Compound FROM tire_degradation_multi_year
+            WHERE Year = {year} AND Race = '{race}'
+        """).df()["Compound"].tolist()
+        con.close()
 
         for pit_lap in pit_lap_options:
             for c1 in compounds:
                 for c2 in compounds:
-                    trials = simulate_one_stop(race, total_laps, pit_lap, c1, c2, n_trials=1000)
+                    trials = simulate_one_stop(year, race, total_laps, pit_lap, c1, c2, n_trials=1000)
                     if trials is None:
                         continue
                     all_results.append({
+                        "Year": year,
                         "Race": race,
                         "total_laps": total_laps,
                         "pit_loss_used": round(pit_loss, 2),
@@ -82,15 +89,15 @@ def run_all_races():
                         "p10": round(np.percentile(trials, 10), 2),
                         "p90": round(np.percentile(trials, 90), 2)
                     })
-        print(f"{race}: {total_laps} laps, pit loss {pit_loss:.2f}s, done")
+        print(f"{year} {race}: {total_laps} laps, pit loss {pit_loss:.2f}s, done")
 
     return pd.DataFrame(all_results)
 
 if __name__ == "__main__":
-    summary_df = run_all_races()
+    summary_df = run_all_years_races()
     print(f"\nTotal scenarios: {len(summary_df)}")
 
     con = duckdb.connect(DB_PATH)
-    con.execute("CREATE OR REPLACE TABLE monte_carlo_multi_race AS SELECT * FROM summary_df")
+    con.execute("CREATE OR REPLACE TABLE monte_carlo_multi_year AS SELECT * FROM summary_df")
     con.close()
-    print("Saved monte_carlo_multi_race table to DuckDB")
+    print("Saved monte_carlo_multi_year table to DuckDB")
