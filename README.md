@@ -164,14 +164,16 @@ f1-telemetry-strategy/
 ```
 
 ## Roadmap
-
-- [x] Scale to full 20-driver grid
-- [x] Scale ingestion, tire degradation, Monte Carlo, and pit optimizer to 8 races (2024)
-- [x] Rebuild dashboard with a race filter and 8-race strategy data
-- [ ] Scale Feature Engineering / Telemetry Analytics to all 8 races (not just Bahrain)
-- [ ] Add tire-cliff modeling (non-linear degradation past a threshold age)
-- [ ] Per-track pit loss constants instead of one fixed value
-- [ ] Expand beyond the 2024 season (multi-year)
+ 
+- [x] Scale to full driver grid
+- [x] Scale Feature Engineering / Telemetry Analytics to 8 races (2024)
+- [x] Tire-cliff modeling (piecewise regression, breakpoint detection)
+- [x] Per-track pit loss constants (replacing one fixed value)
+- [x] Multi-year expansion (2023 + 2024), cross-year model validation
+- [ ] Scale Feature Engineering / Telemetry Analytics to 2023
+- [ ] Feed detected tire cliffs back into the Monte Carlo strategy sim (non-linear degradation)
+- [ ] Filter pit loss estimation for safety-car periods
+- [ ] Backtest predictions against real race outcomes
 
 ## Why this project
 
