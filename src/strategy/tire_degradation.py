@@ -4,7 +4,7 @@ import numpy as np
 
 DB_PATH = "/app/data/processed/telemetry.duckdb"
 
-def load_stint_data(table="sector_splits_multi_race", driver=None, race=None):
+def load_stint_data(table="sector_splits_multi_year", driver=None, race=None, year=None):
     con = duckdb.connect(DB_PATH)
     query = f"""
         SELECT Driver, Race, Year, Stint, LapNumber, LapTime_sec, Compound, TyreLife, TrackStatus
@@ -17,16 +17,13 @@ def load_stint_data(table="sector_splits_multi_race", driver=None, race=None):
         query += f" AND Driver = '{driver}'"
     if race:
         query += f" AND Race = '{race}'"
-    query += " ORDER BY Race, Driver, Stint, TyreLife"
+    if year:
+        query += f" AND Year = {year}"
+    query += " ORDER BY Year, Race, Driver, Stint, TyreLife"
 
     df = con.execute(query).df()
     con.close()
     return df
-
-def filter_green_flag(df):
-    # TrackStatus is a string of status codes per lap (can be multi-char e.g. "24")
-    # keep only laps where status is exactly "1" (green flag only, no yellow/SC/VSC/red mixed in)
-    return df[df["TrackStatus"].astype(str) == "1"].copy()
 
 def compute_global_trend(df):
     median = df["LapTime_sec"].median()
@@ -36,26 +33,17 @@ def compute_global_trend(df):
 
 def fit_degradation(df, min_laps=5):
     results = []
-    dropped_races = []
+    for (year, race), group in df.groupby(["Year", "Race"]):
+        global_trend_slope = compute_global_trend(group)
 
-    for race, race_group_raw in df.groupby("Race"):
-        race_group = filter_green_flag(race_group_raw)
-
-        if len(race_group) < min_laps * 2:
-            dropped_races.append((race, len(race_group_raw), len(race_group)))
-            continue
-
-        global_trend_slope = compute_global_trend(race_group)
-
-        for (driver, stint), group in race_group.groupby(["Driver", "Stint"]):
-            if len(group) < min_laps:
+        for (driver, stint), stint_group in group.groupby(["Driver", "Stint"]):
+            if len(stint_group) < min_laps:
                 continue
 
-            compound = group["Compound"].iloc[0]
-            year = group["Year"].iloc[0]
-            x = group["TyreLife"].values
-            y = group["LapTime_sec"].values
-            avg_lap_number = group["LapNumber"].mean()
+            compound = stint_group["Compound"].iloc[0]
+            x = stint_group["TyreLife"].values
+            y = stint_group["LapTime_sec"].values
+            avg_lap_number = stint_group["LapNumber"].mean()
 
             median = np.median(y)
             mask = y < median + 3
@@ -68,8 +56,8 @@ def fit_degradation(df, min_laps=5):
             normalized_base = intercept - (global_trend_slope * avg_lap_number)
 
             results.append({
-                "Race": race,
                 "Year": year,
+                "Race": race,
                 "Driver": driver,
                 "Stint": stint,
                 "Compound": compound,
@@ -78,23 +66,17 @@ def fit_degradation(df, min_laps=5):
                 "base_laptime_normalized": round(normalized_base, 3)
             })
 
-    if dropped_races:
-        print("Races skipped (too few green-flag laps after filtering):")
-        for race, raw_n, green_n in dropped_races:
-            print(f"  {race}: {raw_n} raw laps -> {green_n} green-flag laps")
-
     return pd.DataFrame(results)
 
 if __name__ == "__main__":
     df = load_stint_data()
-    print(f"TrackStatus values present: {sorted(df['TrackStatus'].astype(str).unique())}")
     deg_results = fit_degradation(df)
-    deg_results = deg_results.sort_values(["Race", "Compound", "deg_rate_sec_per_lap"])
+    deg_results = deg_results.sort_values(["Year", "Race", "Compound", "deg_rate_sec_per_lap"])
 
-    print(f"\nTire degradation, multi-race (green-flag laps only), {deg_results['Race'].nunique()} races:")
-    print(deg_results.groupby(["Race", "Compound"])[["deg_rate_sec_per_lap", "base_laptime_normalized"]].mean().round(4).to_string())
+    print(f"Tire degradation, multi-year, {deg_results['Year'].nunique()} years, {deg_results['Race'].nunique()} races:")
+    print(deg_results.groupby(["Year", "Race", "Compound"])[["deg_rate_sec_per_lap", "base_laptime_normalized"]].mean().round(4).to_string())
 
     con = duckdb.connect(DB_PATH)
-    con.execute("CREATE OR REPLACE TABLE tire_degradation_multi_race AS SELECT * FROM deg_results")
+    con.execute("CREATE OR REPLACE TABLE tire_degradation_multi_year AS SELECT * FROM deg_results")
     con.close()
-    print("\nSaved tire_degradation_multi_race table to DuckDB")
+    print("\nSaved tire_degradation_multi_year table to DuckDB")
