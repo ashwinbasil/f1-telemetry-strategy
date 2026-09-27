@@ -4,7 +4,8 @@
 
 Portfolio project applying data analysis skills to motorsport telemetry, vehicle dynamics, and race strategy. Built to break into motorsport data analyst / performance engineer roles, starting from zero prior motorsport domain experience.
 
-🔗 [Live Dashboard](https://<your-username>.github.io/f1-telemetry-strategy/)
+
+🔗 [Live Dashboard](https://ashwinbasil.github.io/f1-telemetry-strategy/)
 
 ## Stack
 
