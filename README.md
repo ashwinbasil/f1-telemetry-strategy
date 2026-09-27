@@ -140,6 +140,7 @@ bash
 docker-compose run app python -m src.dashboard.build_dashboard
 
 Output will be saved to:  `data/processed/dashboard.html`
+```
 
 ## Project Structure
 
