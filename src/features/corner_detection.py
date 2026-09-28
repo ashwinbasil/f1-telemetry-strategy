@@ -5,12 +5,12 @@ from scipy.signal import savgol_filter, argrelextrema
 
 DB_PATH = "/app/data/processed/telemetry.duckdb"
 
-def detect_corners(driver="VER", race="Bahrain", table="telemetry_multi_race", smoothing_window=15, poly_order=3, min_speed_drop=10, order=5, edge_buffer=30):
+def detect_corners(driver="VER", race="Bahrain", year=2024, table="telemetry_multi_year", smoothing_window=15, poly_order=3, min_speed_drop=10, order=5, edge_buffer=30):
     con = duckdb.connect(DB_PATH)
     df = con.execute(f"""
         SELECT Distance, Speed, Throttle, Brake
         FROM {table}
-        WHERE Driver = '{driver}' AND Race = '{race}'
+        WHERE Driver = '{driver}' AND Race = '{race}' AND Year = {year}
         ORDER BY Distance
     """).df()
     con.close()
@@ -57,35 +57,37 @@ def detect_corners(driver="VER", race="Bahrain", table="telemetry_multi_race", s
         corners_df["corner_number"] = range(1, len(corners_df) + 1)
         corners_df["Driver"] = driver
         corners_df["Race"] = race
+        corners_df["Year"] = year
 
     return corners_df, df
 
-def detect_corners_all(drivers=None, races=None, table="telemetry_multi_race"):
+def detect_corners_all(drivers=None, races=None, years=None, table="telemetry_multi_year"):
     con = duckdb.connect(DB_PATH)
     if drivers is None:
         drivers = con.execute(f"SELECT DISTINCT Driver FROM {table}").df()["Driver"].tolist()
-    if races is None:
-        races = con.execute(f"SELECT DISTINCT Race FROM {table}").df()["Race"].tolist()
+    if races is None or years is None:
+        year_race_pairs = con.execute(f"SELECT DISTINCT Year, Race FROM {table}").df()
     con.close()
 
     all_corners = []
-    for race in races:
+    for _, row in year_race_pairs.iterrows():
+        year, race = row["Year"], row["Race"]
         race_count = 0
         for driver in drivers:
-            corners_df, _ = detect_corners(driver=driver, race=race, table=table)
+            corners_df, _ = detect_corners(driver=driver, race=race, year=year, table=table)
             if len(corners_df) > 0:
                 all_corners.append(corners_df)
                 race_count += 1
-        print(f"{race}: {race_count} drivers processed")
+        print(f"{year} {race}: {race_count} drivers processed")
 
     combined = pd.concat(all_corners, ignore_index=True)
     return combined
 
 if __name__ == "__main__":
     all_corners = detect_corners_all()
-    print(f"\nTotal: {len(all_corners)} corner detections across {all_corners['Race'].nunique()} races, {all_corners['Driver'].nunique()} drivers")
+    print(f"\nTotal: {len(all_corners)} corner detections across {all_corners['Year'].nunique()} years, {all_corners['Race'].nunique()} races, {all_corners['Driver'].nunique()} drivers")
 
     con = duckdb.connect(DB_PATH)
-    con.execute("CREATE OR REPLACE TABLE corners_multi_race AS SELECT * FROM all_corners")
+    con.execute("CREATE OR REPLACE TABLE corners_multi_year AS SELECT * FROM all_corners")
     con.close()
-    print("Saved corners_multi_race table to DuckDB")
+    print("Saved corners_multi_year table to DuckDB")
