@@ -1,8 +1,11 @@
 # F1 Telemetry & Race Strategy Analytics 🏎️
 **Status:** Core pipeline complete — 20+ drivers, 8 races, 2 seasons (2023–2024), 
 with a physics-validated thermal degradation model.
+
+
 🔗 **[View Live Interactive Dashboard](https://ashwinbasil.github.io/f1-telemetry-strategy/)**
 ---
+
 ## 🎯 Executive Summary
 This is an automated, end-to-end predictive analytics pipeline that ingests 
 raw Formula 1 telemetry and transforms it into race-winning strategic 
@@ -17,9 +20,11 @@ Built from zero prior motorsport domain experience to demonstrate
 production-style data engineering, statistical modeling, and 
 dashboard delivery.
 ---
+
 ## 💻 Tech Stack
 **Python · FastF1 · DuckDB · Docker · Pandas · NumPy · SciPy · Plotly**
 ---
+
 ## 📈 Key Strategic Insights & Business Impact
 ### 1. Cross-Season Model Validation (Why You Can Trust This)
 The most important test of any predictive model is: *does it produce the 
@@ -33,14 +38,15 @@ strategy both years**:
 Two independently-fit seasons. Same answer both times. That is meaningful 
 evidence of a real signal, not statistical noise.
 ---
+
 ### 2. Thermal Degradation Model — The Headline Result
-**The business problem:** The original model could predict *average* tire 
-wear but not the sudden late-stint "cliff" — when a tyre suddenly loses 
-1–2 seconds per lap and the driver radically loses race pace. Knowing when 
-that cliff will happen is worth positions.
+
+**The business problem:** The original model could predict *average* tire wear but not the sudden late-stint "cliff" — when a tyre suddenly loses 1–2 seconds per lap and the driver radically loses race pace. Knowing when that cliff will happen is worth positions.
+
 **The root cause:** A cliff isn't caused by age alone. It's caused by 
 the *combination* of a hot track and an old tyre. Soft rubber on a 
 45°C track degrades far faster than the same rubber at 25°C.
+
 **The result:** After solving a collinearity problem in the data 
 (see Engineering section), the model correctly quantifies this effect:
 | Compound | Heat + Age Sensitivity | Stints Pooled |
@@ -48,11 +54,12 @@ the *combination* of a hot track and an old tyre. Soft rubber on a
 | **SOFT** | **Highest** (+0.00505) | 121 |
 | **HARD** | Medium (+0.00270) | 351 |
 | **MEDIUM** | **Lowest** (+0.00097) | 255 |
+
 **Strategic implication:** On a hot circuit like Bahrain, a SOFT tyre 
 is not just faster early — it degrades *exponentially* faster late in 
-a stint as track temperature combines with tyre age. The model quantifies 
-the exact crossover point where pitting becomes cheaper than staying out.
+a stint as track temperature combines with tyre age. The model quantifies the exact crossover point where pitting becomes cheaper than staying out.
 ---
+
 ### 3. Driver Performance & Race Coaching
 **Bahrain GP 2024 — Full 20-Driver Grid:**
 - **Fastest:** VER (92.608s) · **Slowest:** OCO (96.226s) · Field spread: **3.618s**
@@ -63,6 +70,7 @@ the exact crossover point where pitting becomes cheaper than staying out.
   late-stint acceleration in degradation. Bahrain has the most detected 
   cliffs; Monaco the fewest — matching each circuit's real-world reputation.
 ---
+
 ### 4. Operational Risk: Where the Model Is and Isn't Reliable
 | Circuit Type | Model Reliability | Reason |
 |---|---|---|
@@ -70,9 +78,8 @@ the exact crossover point where pitting becomes cheaper than staying out.
 | Low-degradation (Monaco, Australia) | ⚠️ Near-zero fitted rates | Fuel-burn noise dominates wear signal |
 | Street circuits generally | ⚠️ Use with caution | Low deg + small sample per compound |
 | WET / INTERMEDIATE compounds | ❌ Exclude | Only 3–18 stints pooled — insufficient data |
-**Operational recommendation:** Use the strategy engine's output directly 
-for Bahrain and Japan. Apply manual validation on low-degradation circuits 
-until the mixed-effects model is implemented.
+
+**Operational recommendation:** Use the strategy engine's output directly for Bahrain and Japan. Apply manual validation on low-degradation circuits until the mixed-effects model is implemented.
 ---
 
 ## ⚙️ Technical Implementation (Engineering POV)
