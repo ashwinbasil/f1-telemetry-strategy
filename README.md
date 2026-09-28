@@ -57,7 +57,8 @@ the *combination* of a hot track and an old tyre. Soft rubber on a
 
 **Strategic implication:** On a hot circuit like Bahrain, a SOFT tyre 
 is not just faster early — it degrades *exponentially* faster late in 
-a stint as track temperature combines with tyre age. The model quantifies the exact crossover point where pitting becomes cheaper than staying out.
+a stint as track temperature combines with tyre age. The model  quantifies the exact crossover point where pitting becomes cheaper than staying out.
+
 ---
 
 ### 3. Driver Performance & Race Coaching
@@ -80,6 +81,7 @@ a stint as track temperature combines with tyre age. The model quantifies the ex
 | WET / INTERMEDIATE compounds | ❌ Exclude | Only 3–18 stints pooled — insufficient data |
 
 **Operational recommendation:** Use the strategy engine's output directly for Bahrain and Japan. Apply manual validation on low-degradation circuits until the mixed-effects model is implemented.
+
 ---
 
 ## ⚙️ Technical Implementation (Engineering POV)
