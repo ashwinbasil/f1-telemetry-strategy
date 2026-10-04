@@ -7,10 +7,10 @@ DB_PATH = "/app/data/processed/telemetry.duckdb"
 def load_long_stints(min_laps=10):
     con = duckdb.connect(DB_PATH)
     df = con.execute("""
-        SELECT Driver, Race, Stint, LapNumber, LapTime_sec, Compound, TyreLife
-        FROM sector_splits_multi_race
+        SELECT Driver, Race, Year, Stint, LapNumber, LapTime_sec, Compound, TyreLife
+        FROM sector_splits_multi_year
         WHERE LapTime_sec IS NOT NULL AND Compound IS NOT NULL AND TyreLife IS NOT NULL
-        ORDER BY Race, Driver, Stint, TyreLife
+        ORDER BY Year, Race, Driver, Stint, TyreLife
     """).df()
     con.close()
     return df
@@ -39,14 +39,14 @@ def fit_piecewise(x, y, min_segment=4):
 
     return best_breakpoint, best_slopes
 
-def detect_cliffs(df, min_laps=10, cliff_ratio_threshold=1.5, min_cliff_slope=0.15):
+def detect_cliffs(df, min_laps=10, min_cliff_slope=0.15):
     results = []
-    for (race, driver, stint), group in df.groupby(["Race", "Driver", "Stint"]):
+    for (year, race, driver, stint), group in df.groupby(["Year", "Race", "Driver", "Stint"]):
         if len(group) < min_laps:
             continue
 
         compound = group["Compound"].iloc[0]
-        x = group["TyreLife"].values
+        x = group["TyreLife"].values.astype(float)
         y = group["LapTime_sec"].values
 
         median = np.median(y)
@@ -63,15 +63,11 @@ def detect_cliffs(df, min_laps=10, cliff_ratio_threshold=1.5, min_cliff_slope=0.
             continue
 
         slope_before, slope_after = slopes
-        # real cliff: post-break slope must be clearly steep in absolute terms, not just relatively steeper
         cliff_detected = (slope_after >= min_cliff_slope) and (slope_after >= slope_before + min_cliff_slope)
 
         results.append({
-            "Race": race,
-            "Driver": driver,
-            "Stint": stint,
-            "Compound": compound,
-            "laps_in_stint": len(x),
+            "Year": year, "Race": race, "Driver": driver, "Stint": stint,
+            "Compound": compound, "laps_in_stint": len(x),
             "overall_linear_slope": round(overall_slope, 4),
             "cliff_tyre_age": round(breakpoint, 1),
             "slope_before_cliff": round(slope_before, 4),
@@ -91,10 +87,7 @@ if __name__ == "__main__":
     cliffs_found = cliff_results[cliff_results["cliff_detected"] == True]
     print(f"Cliffs detected: {len(cliffs_found)} of {len(cliff_results)} stints")
 
-    print("\nStints with detected cliffs:")
-    print(cliffs_found[["Race", "Driver", "Stint", "Compound", "laps_in_stint", "cliff_tyre_age", "slope_before_cliff", "slope_after_cliff"]].to_string(index=False))
-
     con = duckdb.connect(DB_PATH)
     con.execute("CREATE OR REPLACE TABLE tire_cliff_analysis AS SELECT * FROM cliff_results")
     con.close()
-    print("\nSaved tire_cliff_analysis table to DuckDB")
+    print("\nSaved tire_cliff_analysis table to DuckDB (now multi-year)")
