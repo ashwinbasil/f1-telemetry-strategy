@@ -7,9 +7,9 @@ OUTPUT_PATH = "/app/data/processed/dashboard.html"
 
 def load_data():
     con = duckdb.connect(DB_PATH)
-    delta = con.execute("SELECT * FROM delta_vs_fastest WHERE Driver = 'LEC' ORDER BY Distance").df()
-    corner_avg = con.execute("SELECT * FROM corner_ranking_avg ORDER BY rank").df()
-    driver_comp = con.execute("SELECT * FROM driver_comparison_all ORDER BY rank").df()
+    delta = con.execute("SELECT * FROM delta_vs_fastest_multi_year WHERE Race='Bahrain' AND Year=2024 AND Driver='LEC' ORDER BY Distance").df()
+    corner_avg = con.execute("SELECT * FROM corner_ranking_avg_multi_year ORDER BY Year, Race, avg_time_lost DESC").df()
+    driver_comp = con.execute("SELECT * FROM driver_comparison_multi_year WHERE Race='Bahrain' AND Year=2024 ORDER BY rank").df()
     deg_multi = con.execute("SELECT * FROM tire_degradation_multi_year").df()
     pit_multi = con.execute("SELECT * FROM pit_optimizer_multi_year ORDER BY Race, Year").df()
     con.close()
@@ -23,13 +23,31 @@ def build_delta_fig(delta):
                        xaxis_title="Distance (m)", yaxis_title="Delta (s)", height=350)
     return fig
 
-def build_corner_ranking_fig(corner_avg):
-    fig = go.Figure(go.Bar(
-        x=[f"Corner {int(c)}" for c in corner_avg["corner_number"]],
-        y=corner_avg["avg_time_lost"], marker_color="#dc0000"
-    ))
-    fig.update_layout(title="Corner Ranking: Avg Time Lost vs Fastest Driver (Full Grid, Bahrain 2024)",
-                       xaxis_title="Corner", yaxis_title="Avg Time Lost (s)", height=400)
+def build_corner_ranking_fig_with_filter(corner_avg):
+    corner_avg["Label"] = corner_avg["Race"] + " " + corner_avg["Year"].astype(str)
+    labels = sorted(corner_avg["Label"].unique())
+
+    fig = go.Figure()
+    trace_label_map = []
+    for label in labels:
+        subset = corner_avg[corner_avg["Label"] == label].sort_values("avg_time_lost", ascending=False)
+        fig.add_trace(go.Bar(
+            x=[f"Corner {int(c)}" for c in subset["corner_number"]],
+            y=subset["avg_time_lost"], marker_color="#dc0000",
+            visible=(label == labels[0])
+        ))
+        trace_label_map.append(label)
+
+    buttons = []
+    for label in labels:
+        visibility = [l == label for l in trace_label_map]
+        buttons.append(dict(label=label, method="update", args=[{"visible": visibility}, {"title": f"Corner Ranking: Avg Time Lost vs Fastest Driver — {label}"}]))
+
+    fig.update_layout(
+        title=f"Corner Ranking: Avg Time Lost vs Fastest Driver — {labels[0]}",
+        xaxis_title="Corner", yaxis_title="Avg Time Lost (s)", height=400,
+        updatemenus=[dict(active=0, buttons=buttons, x=1.0, y=1.2, xanchor="right")]
+    )
     return fig
 
 def build_driver_comparison_fig(driver_comp):
@@ -76,7 +94,7 @@ def build_pit_summary_fig(pit_multi):
         text=[f"{c1}→{c2}, lap {int(pl)}" for c1, c2, pl in zip(pit_multi["compound_1"], pit_multi["compound_2"], pit_multi["pit_lap"])],
         textposition="outside", marker_color="#00d2be"
     ))
-    fig.update_layout(title="Optimal Pit Strategy & Predicted Race Time, All Races/Years",
+    fig.update_layout(title="Optimal Pit Strategy (Cliff-Aware Model) & Predicted Race Time, All Races/Years",
                        xaxis_title="Race / Year", yaxis_title="Predicted Race Time (s)", height=500)
     fig.update_xaxes(tickangle=-45)
     return fig
@@ -86,7 +104,7 @@ if __name__ == "__main__":
 
     figs = [
         build_delta_fig(delta),
-        build_corner_ranking_fig(corner_avg),
+        build_corner_ranking_fig_with_filter(corner_avg),
         build_driver_comparison_fig(driver_comp),
         build_deg_multi_year_fig_with_filter(deg_multi),
         build_pit_summary_fig(pit_multi),
@@ -97,8 +115,8 @@ if __name__ == "__main__":
         f.write("<style>body{font-family:Arial;background:#f5f5f5;margin:20px;} h1{color:#1a1a2e;}</style>")
         f.write("</head><body>")
         f.write("<h1>F1 Telemetry & Strategy Dashboard</h1>")
-        f.write("<p>Full grid (20+ drivers) across 8 races, 2023-2024. Telemetry/corner analysis shown for Bahrain 2024; tire degradation and pit strategy scaled to all races and both years.</p>")
-        f.write("<p style='color:#666;font-size:0.9em;'>Note: some race/year combos show near-zero or negative degradation rates, a known model limitation on low-degradation circuits with limited sample size, not a data error. See README for details.</p>")
+        f.write("<p>Full grid (20+ drivers) across 8 races, 2023-2024. Telemetry/corner-impact shown for Bahrain 2024; corner ranking, tire degradation and pit strategy filterable across all races and both years. Pit strategy now uses a cliff-aware (piecewise) degradation model.</p>")
+        f.write("<p style='color:#666;font-size:0.9em;'>Note: some race/year combos show near-zero or negative degradation rates, a known model limitation on low-degradation circuits with limited sample size, not a data error. Backtesting against real race outcomes is blocked by official results data (Ergast) being unavailable for 2023-2024 sessions. See README for details.</p>")
         for fig in figs:
             f.write(pio.to_html(fig, full_html=False, include_plotlyjs="cdn"))
         f.write("</body></html>")
