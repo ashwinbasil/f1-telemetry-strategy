@@ -1,332 +1,170 @@
-# F1 Telemetry & Strategy Analytics 🏎️
+# F1 Telemetry & Race Strategy Analytics
 
-**Status:** Core pipeline complete — 20+ drivers, 8 races, 2 seasons (2023–2024),
-every layer from ingestion through strategy simulation fully scaled to both years.
+🔗 **[Live Dashboard](https://ashwinbasil.github.io/f1-telemetry-strategy/)**
 
-🔗 **[View Live Interactive Dashboard](https://ashwinbasil.github.io/f1-telemetry-strategy/)**
+An analytics system that takes raw Formula 1 timing and telemetry data and turns it into answers a race team would actually ask: *Where is time being lost? How fast do the tyres wear out? When should we pit, and on what tyres?*
 
----
-
-## 🎯 Executive Summary
-
-This is an automated, end-to-end predictive analytics pipeline that ingests raw
-Formula 1 telemetry and turns it into race-winning strategic recommendations.
-The engine answers three high-value operational questions that real F1 strategy
-teams face every race weekend:
-
-1. **When should a driver pit?** — A cliff-aware Monte Carlo simulation across
-   725 scenarios finds the mathematically optimal lap, accounting for the
-   sudden tyre performance drop-off that linear models miss entirely.
-2. **Which tyres should they run?** — A physics-validated degradation model
-   that accounts for both tyre age *and* track temperature, after diagnosing
-   and fixing a collinearity flaw that made the first version produce
-   physically backwards results.
-3. **Where is time being lost on track?** — Telemetry analysis with outlier
-   filtering that pinpoints the exact corner costing the most time, across
-   the full 20+ driver grid, both seasons.
-
-Built from zero prior motorsport domain experience. The approach throughout:
-build the physically-motivated model, refuse to accept a result that
-contradicts known physics, diagnose the root cause with a number, and
-fix it properly. Then re-test whether the headline finding survives the fix.
+Covers the full grid across 8 circuits and 2 seasons (2023 and 2024). Built as a portfolio project to move into motorsport data analysis, starting from zero prior motorsport domain knowledge.
 
 ---
 
-## 💻 Tech Stack
+# Part 1: For stakeholders
 
-**Python · FastF1 · DuckDB · Docker · Pandas · NumPy · SciPy · Plotly**
+*If you only read one part, read this one. It covers what the system tells you, what you can trust, and what you shouldn't lean on yet.*
 
----
+## The questions it answers
 
-## 📈 Key Strategic Insights & Business Impact
+| Question | What the system gives you |
+|---|---|
+| Where on track is a driver losing time to the fastest car? | Corner-by-corner time loss, ranked, for every driver and every race |
+| How quickly do each tyre compound wear out at this circuit? | Degradation rate per compound, per race, per season |
+| Do tyres fall off a cliff late in a stint, and when? | Detected cliff points per compound (23% of long stints show one) |
+| How much does a pit stop really cost at this track? | Per-circuit pit loss, from about 8.5 to 18.5 seconds depending on the track |
+| What's the best pit stop strategy? | Optimal pit lap and compound choice per race, from 725 simulated scenarios |
 
-### 1. The Headline Result: A Strategy That Survives Every Model Upgrade
+## The headline finding
 
-The strongest signal in this project isn't a single number — it's a finding
-that held up through three separate methodological upgrades.
+**At Bahrain, the model recommends the same strategy in both seasons: start on HARD, pit around lap 28, finish on HARD.** The 2023 and 2024 results were fitted completely independently, so agreement between them is real evidence rather than a coincidence of one dataset.
 
-**Bahrain's optimal pit strategy (HARD→HARD, pit lap 28) came out identical
-in both 2023 and 2024, fit completely independently, and survived every model
-change along the way — including the hardest one.**
+More importantly, that recommendation **did not change** when the underlying model was made progressively more realistic:
 
-The Monte Carlo simulation originally ran on a flat linear degradation curve.
-It was upgraded to use real cliff data instead — a genuine piecewise curve
-(shallower early in the stint, steeper after the detected cliff point) wherever
-sufficient data existed. **70% of all 725 scenarios (510) ended up using the
-real cliff-based curve.** Bahrain's answer didn't move: same strategy, both
-years, under the tougher model.
+1. A basic model assuming tyres wear at a constant rate
+2. The same model with pit-stop cost measured per circuit from real timing data, with stops made under safety cars excluded
+3. A model where tyres can fall off a cliff late in a stint, used in 70% of all simulated scenarios
 
-That's not a coincidence. It's evidence the original result was picking up
-something real about how that circuit behaves, not an artifact of the model's
-assumptions.
+A recommendation that survives three independent challenges is one you can put weight on. That's the single most decision-relevant result here.
 
-> **What this means strategically:** On a high-degradation circuit like Bahrain,
-> the tyre cliff is real, it's measurable, and the optimal strategy accounts
-> for it. The HARD compound degrades slowly enough that a single pit stop on
-> Lap 28 is definitively cheaper than any alternative — even when the model
-> is specifically designed to find scenarios where staying out longer causes
-> an exponential time loss.
+## Other findings worth knowing
 
----
+- **Hot tracks hurt soft tyres the most.** Degradation depends on tyre age *and* track temperature together, and the soft compound is the most heat-sensitive of the three, which matches how tyre chemistry is known to work.
+- **Pit stop cost varies a lot by circuit**, from about 8.5 seconds at Australia to 18.4 seconds at Singapore. Using one number for every track would distort strategy calls.
+- **Safety cars were distorting pit-cost estimates.** At Saudi Arabia, 14 of 24 pit stops happened under caution, which inflated the apparent cost from 9.5 to 31.6 seconds. Filtering them out fixed it.
+- **Bahrain 2024:** Verstappen set the fastest lap (92.608s), Ocon the slowest of the grid (96.226s), a 3.6-second spread. Turn 1 cost the field the most time, an average of 0.36s against the fastest driver.
 
-### 2. Thermal Degradation — Quantifying the "Hot + Old Tyre = Cliff" Effect
+## How far to trust it
 
-**The business problem:** Basic degradation models treat every lap of tyre
-age as equal. In reality, a 25-lap-old tyre on a 45°C track degrades far
-faster than the same tyre on a 25°C track. Knowing the crossover point is
-worth positions.
+| Confidence | What |
+|---|---|
+| **Higher** | Bahrain and Japan tyre behaviour, which holds up in both seasons. Corner time-loss rankings. Per-circuit pit cost as a relative comparison between tracks. |
+| **Lower** | Tyre wear at low-degradation circuits (e.g. Monaco, Australia), where the signal is too weak against the noise. Treat the strategy output there as indicative only. |
+| **Treat as approximate** | Pit cost figures, accurate to roughly ±3-5 seconds. 2023 pit costs reuse the 2024-derived values. |
+| **Not yet validated** | The strategy recommendations have **not** been checked against what teams actually did or how races actually finished. See below. |
 
-**The result — after fixing a significant data problem (see Engineering section):**
+## What this system cannot tell you (yet)
 
-| Compound | Heat + Age Interaction | Stints Pooled |
-|---|---|---|
-| **SOFT** | **+0.00505** (most heat-sensitive) | 121 |
-| **HARD** | +0.00270 | 351 |
-| **MEDIUM** | +0.00097 (least heat-sensitive) | 255 |
+**It has not been backtested against real race results.** The official finishing-order data source (Ergast) returns nothing for any 2023 or 2024 race, confirmed across all 16 races tested. I tried deriving winners from lap times as a workaround and it produced clearly wrong winners (drivers who never won those races), so I stopped rather than present a backtest built on bad data. Closing this gap needs a different results data source.
 
-All three dry compounds show a **positive** interaction coefficient —
-physically correct. SOFT is the most sensitive to heat, matching real
-tyre chemistry. The model now tells a strategist not just *how fast* a
-tyre is wearing, but *whether the track temperature is making it worse
-faster than expected.*
+Practical meaning: the system is good at *comparing options and ranking them*, and not yet proven at *predicting what will happen in a real race*. It does not model traffic, safety cars during the race, or track position, all of which shape real strategy calls.
 
----
+## Recommended use
 
-### 3. Driver Performance & Race Coaching
+- **Use now:** comparing circuits, ranking where time is lost, understanding tyre behaviour at high-degradation tracks, sanity-checking a strategy idea.
+- **Do not use yet:** as the sole basis for a live strategy call, until it is validated against real outcomes.
 
-**Bahrain GP 2024 — Full 20-Driver Grid:**
-- **Fastest:** VER (92.608s) · **Slowest:** OCO (96.226s) · Spread: **3.618s**
-- **Highest-priority coaching target:** Corner 1 costs the field an average
-  of **0.364s** per lap vs. the race leader — the single highest-ROI braking
-  zone for simulator prep.
+## Reading the dashboard
 
-**Tire-cliff detection across both seasons:**
-- 142 of 615 long stints (23%) show a genuine late-stint acceleration in
-  degradation — the same detection rate in both 2023 and 2024 independently.
-  That consistency is a validation check in its own right.
+The [live dashboard](https://ashwinbasil.github.io/f1-telemetry-strategy/) has five views. The corner-ranking and tyre-degradation charts each have a dropdown to switch between any of the 16 race-and-year combinations. The pit-strategy chart shows the recommended strategy and predicted race time for all 16 at once.
 
 ---
 
-### 4. Pit Loss — Filtered for Safety Car (A Concrete Data Quality Win)
+# Part 2: For engineers
 
-**Before filtering:** Saudi Arabia's estimated pit loss was 31.6 seconds —
-implausibly high for any normal pit stop.
+*Architecture, method, debugging history, and how to run it.*
 
-**After filtering safety-car laps:** 9.5 seconds. The cause was measurable:
-14 of 24 pit stops in that dataset (58%) had been taken under caution, where
-the pit lane cost is a fraction of a green-flag stop. Removing them recovered
-a physically plausible estimate.
+## Stack
 
-> **What this demonstrates:** Data quality problems don't always look like
-> missing values or obvious errors. This one looked like a valid number and
-> would have silently biased every strategy recommendation for that circuit.
-> It was only caught by checking the result against known physics.
+Python, FastF1, DuckDB, Docker, Pandas, NumPy, SciPy, Plotly
 
----
+## Architecture
 
-### 5. Where the Model Is and Isn't Reliable
-
-| Circuit Type | Reliability | Reason |
-|---|---|---|
-| High-degradation (Bahrain, Japan) | ✅ Reliable, both seasons | Strong signal; cliff model active |
-| Low-degradation (Monaco, Australia) | ⚠️ Linear fallback | Fuel-burn noise dominates |
-| Street circuits generally | ⚠️ Use with caution | Small per-compound sample sizes |
-| WET / INTERMEDIATE compounds | ❌ Excluded | 3–18 stints — insufficient data |
-
-**Operational recommendation:** Use the strategy engine's output directly
-for Bahrain and Japan. Apply manual validation on low-degradation circuits
-until a mixed-effects model is implemented for those tracks.
-
----
-
-## ⚙️ Technical Implementation (Engineering POV)
-
-### Architecture
-
-```text
-FastF1 (API: telemetry, laps, weather)
+```
+FastF1 (data source)
     │
     ▼
-Data Ingestion — 20+ drivers × 8 races × 2 seasons (2023, 2024)
+Data Ingestion  — 20+ drivers × 8 races × 2 seasons (2023, 2024) + weather
     │
     ▼
-DuckDB (Analytical Storage)
+DuckDB (storage)
     │
     ▼
-Feature Engineering  ✅ (all 8 races, both years)
-· Corner detection · Brake points · Throttle points · Sector splits · Delta time
+Feature Engineering
+• Corner detection (Savitzky-Golay smoothing + local minima on speed trace)
+• Brake points, throttle points, sector splits
+• Delta time vs per-race fastest lap
     │
     ▼
-Telemetry Analytics  ✅ (all 8 races, both years)
-· Lap comparison · Corner ranking (outlier-filtered) · Driver comparison · Time loss
+Telemetry Analytics
+• Corner ranking (outlier-filtered), driver comparison, time-loss report
     │
     ▼
-Strategy Engine  ✅ (all 8 races, both years)
-· Linear degradation model (per race / year / compound)
-· Thermal degradation model (TyreAge × TrackTemp, pooled across stints)
-· Tire-cliff detection (piecewise regression, breakpoint + slope change)
-· Per-race pit loss estimation (real in-lap/out-lap timing, SC-filtered)
-· Monte Carlo simulation (725 scenarios, cliff-aware piecewise curve where data exists)
-· Pit stop optimizer (best strategy per race / year)
+Strategy Engine
+• Linear degradation model — per race / year / compound
+• Thermal model — track temp × tyre age, pooled across stints
+• Tire-cliff detection (piecewise regression)
+• Per-race pit loss (in-lap/out-lap timing, green-flag laps only)
+• Monte Carlo — cliff-aware piecewise degradation curve where data exists
+• Pit stop optimizer
     │
     ▼
-Dashboard  ✅ (race + year filter — not yet rebuilt with cliff-model results, see Roadmap)
+Dashboard (Plotly, single static HTML, GitHub Pages)
 ```
 
-### Scope
+All layers run across the full grid, 8 races, and both seasons.
 
-- **Drivers:** Full grid, 20–22 per race (reserve drivers included,
-  e.g., Bearman sub for Sainz at Saudi Arabia 2024)
-- **Races:** Bahrain · Saudi Arabia · Australia · Monaco · Singapore ·
-  Belgium · Japan · Monza
-- **Seasons:** 2023 and 2024
+## Method notes
 
----
+**Degradation model.** Per stint, lap time is regressed on tyre age. Each stint's baseline is normalised against a per-race trend in lap number, which strips out fuel burn-off and track evolution so they don't masquerade as compound pace.
 
-## 🛠️ Key Engineering Decisions & Debugging
+**Thermal model.** Lap time is regressed on tyre age, track temperature, and their interaction, pooled across all stints of a compound. Weather is joined to laps with an as-of join on cumulative lap time (100% coverage, 15,848 laps).
 
-Each result above involved catching a real problem and diagnosing it with
-a number before fixing it — not guessing, not accepting a bad result.
+**Cliff detection.** A piecewise linear fit is searched over candidate breakpoints per stint (10+ laps). A cliff is flagged only if the post-breakpoint slope is both ≥0.15 s/lap in absolute terms and meaningfully steeper than the pre-breakpoint slope. 142 of 615 stints flagged.
 
----
+**Monte Carlo.** 1,000 trials per scenario, across 5 pit-lap options and all compound pairs per race/year, with Gaussian lap-time noise. Where a (year, race, compound) group has ≥2 detected-cliff stints, the sim uses a piecewise curve; otherwise it falls back to linear. 510 of 725 scenarios used the cliff curve.
 
-### Fuel-Burn / Track-Evolution Confound
+## Debugging log
 
-Initial linear regression showed HARD compound as faster base pace than
-SOFT — physically backwards. Root cause: the intercept conflated compound
-pace with fuel load (SOFT stints run early = heavy fuel; HARD stints run
-late = light fuel). Fixed by computing a global fuel-burn trend per race
-and normalizing each stint's base laptime to a common reference point
-before fitting by compound.
+Each of these was caught by noticing a result that contradicted known physics or common sense, then finding the cause with a measurement rather than a guess.
 
----
+| Problem | Diagnosis | Fix |
+|---|---|---|
+| HARD compound looked faster than SOFT | Regression intercept conflated compound pace with fuel load (SOFT stints are early and heavy, HARD stints late and light) | Per-race fuel/track-evolution trend, normalised out before averaging |
+| Cliff detector flagged 47% of stints | Relative-slope test fired whenever an early negative (fuel-driven) slope turned barely positive | Added an absolute slope threshold; rate fell to 23% and matched circuit reputations |
+| Thermal interaction coefficient negative for every compound | Within-stint tyre age vs track temp correlated at mean \|r\| = 0.674, with 59.5% of stints above 0.7 | Pooled across stints; correlation fell to 0.08-0.19 and coefficients turned positive, SOFT highest |
+| Saudi Arabia pit loss 31.6s | 14 of 24 stops were under caution | Filtered to green-flag laps; estimate fell to 9.5s (n=10, so itself uncertain) |
+| 2023 Japan corner average 1.42s | One driver (BOT) had a 17.9s delta on a single lap, an incident rather than cornering | Excluded \|delta\| > 2.0s; value corrected to 0.76s. Same driver independently shows as slowest in that race in a separate table |
+| 2023 Bahrain "fastest" driver was ZHO | Verified real: the final lap, run alone in clean air | Documented, not corrected |
+| "Italy" loaded the wrong race | 2024 had two Italian rounds; FastF1 matched Imola | Request "Monza" explicitly |
+| Backtest produced impossible winners | Ergast has no results for 2023/2024; lap-time-sum is not a valid proxy for finishing order | Stopped and documented as a data-source blocker |
 
-### Thermal Model Collinearity — Full Diagnosis
+## Known limitations
 
-**The problem:** Adding `TrackTemp` and a `TyreAge × TrackTemp` interaction
-term to per-stint regression produced uniformly *negative* interaction
-coefficients — implying heat helps old tyres, which contradicts real physics.
+- **No ground-truth validation.** Backtesting is blocked by missing official results (see Part 1).
+- **Linear degradation is unreliable on roughly half of circuit/year combinations.** The cliff model compensates only where cliff data exists.
+- **Australia's cross-year match broke under the cliff model** (SOFT→SOFT in 2023, HARD→SOFT in 2024). Both years used the linear fallback, so this is most likely Monte Carlo noise on a close call, not investigated further.
+- **Bahrain's worst corner differs by year** (Turn 5 in 2023, Turn 1 in 2024) even after outlier filtering. The tyre physics is stable across years; corner-level rankings are not.
+- **Pit loss is rough** (±3-5s), small per-race samples after green-flag filtering, and 2023 reuses 2024-derived values.
+- **Thermal model INTERMEDIATE/WET rows are noise** (18 and 3 stints).
+- **Corner counts vary slightly by driver** (8 or 9 detected), a limitation of the heuristic detector.
+- **Simulation omits traffic, mid-race safety cars, and track position.**
 
-**The diagnosis:** Pearson correlation between TyreAge and TrackTemp
-computed within every individual stint. Mean |r| = **0.674** across 748
-stints; 59.5% of stints exceed |r| = 0.7. Root cause is structural:
-track temperature drifts monotonically through a race (typically cooling)
-at exactly the same time tyre age only ever increases. Standard linear
-regression cannot reliably separate two variables moving in lockstep
-within a single stint.
-
-**The fix:** Pool stints. Normalise each stint's lap times to its own
-median first (preventing car/compound performance from dominating the
-pooled result), then combine all stints for a compound into one
-regression. Pooling across different races and temperature conditions
-breaks the artificial correlation — it dropped from 0.674 to
-**0.078–0.188** depending on compound. Interaction coefficients flipped
-to physically correct positive values.
-
----
-
-### Cliff-Aware Monte Carlo Upgrade
-
-The original Monte Carlo used a flat linear degradation curve. Upgraded
-to a genuine piecewise curve (shallower early slope, steeper post-cliff
-slope) wherever ≥2 detected-cliff stints existed for that
-race/compound combination — otherwise it falls back to linear. 510 of
-725 scenarios (70%) used the real cliff-based curve. Bahrain's strategy
-was unchanged; Australia's 2024 recommendation flipped (SOFT→SOFT to
-HARD→SOFT), but both years still used the linear fallback there (zero
-cliff coverage), so this is most likely Monte Carlo sampling noise on a
-close call — flagged, not chased further.
-
----
-
-### Tire-Cliff Detector Calibration
-
-Initial version flagged 47% of stints as having a cliff, because it only
-required the post-breakpoint slope to be *relatively* steeper than
-pre-breakpoint. Fixed by adding an *absolute* magnitude threshold
-(0.15 sec/lap minimum) on the post-breakpoint slope. Detection rate
-dropped to 23% and the circuit pattern became physically coherent
-(Bahrain most, Monaco fewest).
-
----
-
-### Corner Ranking Outlier Fix
-
-2023 Japan initially showed an absurd 1.4s average time loss at one
-corner. Traced to a single driver (BOT) with a 17.9s delta on one lap —
-an on-track incident contaminating the average with no outlier filter.
-Fixed with a threshold filter; corrected number (0.76s) fell within the
-dataset's normal range. Cross-validated independently: BOT also appears
-as the slowest driver overall in that race in a completely separate table,
-confirming the incident was real rather than a calculation error.
-
----
-
-### Reference-Driver Anomaly
-
-2023 Bahrain's session-fastest lap belongs to ZHO (a backmarker that
-season), not a front-runner. Verified as real: it's the literal final lap,
-run alone in clean air. A known quirk of using session-fastest as a
-delta-comparison reference — it doesn't always belong to the fastest driver
-overall. Documented, not corrected (correcting it would redefine "fastest"
-in a way that no longer matches what the sport itself reports).
-
----
-
-### Data Source Name Collision
-
-Requesting "Italy" from FastF1 in 2024 returned the Emilia Romagna GP at
-Imola, not the Italian GP at Monza — 2024 had two Italian rounds. Fixed
-by requesting "Monza" directly.
-
----
-
-## 🚧 Known Limitations
-
-| Limitation | Status |
-|---|---|
-| Linear degradation unreliable on ~half of circuit/year combinations | Cliff model partially compensates where data exists |
-| 2023 pit loss reuses 2024-derived values | Same tracks; not independently measured |
-| Pit loss estimates have ±3–5s uncertainty | Small per-race sample sizes |
-| WET / INTERMEDIATE thermal model rows are noise | Only 3–18 stints — excluded from outputs |
-| Tire cliffs in Monte Carlo use linear fallback on low-deg circuits | Zero cliff coverage at Monaco, Australia |
-| Dashboard lags the latest modeling work | Pre-cliff-model Monte Carlo numbers still shown |
-| No ground-truth backtesting | Future iteration will benchmark vs. real outcomes |
-
----
-
-## 🗺️ Roadmap
-
-- [x] Scale to full driver grid, 8 races, 2023 + 2024 — every layer
-- [x] Tire-cliff detection, fed into Monte Carlo as a real piecewise curve
-- [x] Per-track pit loss estimation, filtered for safety-car periods
-- [x] Thermal degradation model — collinearity diagnosed and fixed via pooling
-- [x] Outlier filtering in corner-ranking analytics
-- [ ] Backtest predictions against real race outcomes
-- [ ] Rebuild dashboard with cliff-aware Monte Carlo results and 2023 telemetry data
-
----
-
-## 🚀 Setup
+## Setup
 
 ```bash
 docker-compose build
 docker-compose up
 ```
 
-Jupyter available at `localhost:8888`.
+Jupyter at `localhost:8888`. To regenerate the dashboard:
 
 ```bash
-docker-compose run --remove-orphans app python -m src.dashboard.build_dashboard
+docker-compose run app python -m src.dashboard.build_dashboard
 ```
 
 Output: `data/processed/dashboard.html`
 
----
+## Project structure
 
-## 📁 Project Structure
-
-```text
+```
 f1-telemetry-strategy/
 ├── docker-compose.yml
 ├── Dockerfile
@@ -336,27 +174,22 @@ f1-telemetry-strategy/
 │   └── processed/
 ├── docs/                # published dashboard (GitHub Pages)
 ├── src/
-│   ├── ingestion/       # FastF1 pulls: telemetry, laps, weather — multi-race/multi-year
-│   ├── db/              # DuckDB load, merge, and weather-join scripts
-│   ├── features/        # corner/brake/throttle/sector/delta detection, multi-year
-│   ├── analytics/       # lap/driver comparison, corner ranking (outlier-filtered), time loss
-│   ├── strategy/        # linear + thermal degradation, tire cliffs, pit loss,
-│   │                    # cliff-aware Monte Carlo, optimizer
-│   └── dashboard/       # HTML dashboard builder, race+year filter
+│   ├── ingestion/       # telemetry, laps, weather, race results
+│   ├── db/              # DuckDB load, merge, weather-join
+│   ├── features/        # corner / brake / throttle / sector / delta
+│   ├── analytics/       # driver comparison, corner ranking, time loss
+│   ├── strategy/        # degradation, cliffs, pit loss, Monte Carlo, optimizer, backtest (blocked)
+│   └── dashboard/       # dashboard builder
 ├── notebooks/
 └── tests/
 ```
 
----
+## Open work
 
-## 💡 Why this project
+- Backtest against real outcomes, once a working results source is found
+- Per-circuit 2023 pit loss measured independently rather than reused from 2024
+- Extend the thermal model with more wet-weather data
 
-Background in data analysis, no prior motorsport domain experience. Built
-this to learn vehicle dynamics, telemetry analysis, and race strategy
-terminology hands-on — using real F1 data, not toy datasets.
+## About this project
 
-The pattern throughout: build the physically-motivated model, don't accept
-a result that contradicts known physics or common sense, diagnose the real
-cause with a number, fix it properly, and re-test whether the headline
-finding survives the fix. Bahrain's strategy survived three separate model
-upgrades. That's the result I'd lead with in an interview.
+Built to learn race strategy and telemetry analysis hands-on with real data. The discipline it practised: don't trust a number because the code ran, check it against what you know should be true, and say plainly where the evidence stops.
